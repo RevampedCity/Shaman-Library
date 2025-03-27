@@ -1,0 +1,39 @@
+local lighting = game:GetService("Lighting")
+
+-- Disable Shadows and Environmental Effects
+lighting.GlobalShadows = false
+lighting.FogEnd = 9e9 -- Removes fog
+lighting.Brightness = 1 -- Normal brightness without extra lighting effects
+lighting.ClockTime = 12 -- Set to midday for optimal lighting (can be adjusted)
+lighting.Ambient = Color3.fromRGB(255, 255, 255) -- Uniform ambient lighting
+
+-- Remove Post-Processing Effects
+for _, v in pairs(lighting:GetChildren()) do
+    if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then
+        v:Destroy()
+    end
+end
+
+-- Optimize Terrain for Performance
+local terrain = workspace:FindFirstChildOfClass("Terrain")
+if terrain then
+    terrain.WaterWaveSize = 0
+    terrain.WaterWaveSpeed = 0
+    terrain.WaterReflectance = 0
+    terrain.WaterTransparency = 1 -- Fully transparent water
+end
+
+-- Remove Unnecessary Shadows and Reflections
+local function optimizeParts(obj)
+    if obj:IsA("BasePart") then
+        obj.CastShadow = false
+        obj.Reflectance = 0
+        obj.Material = obj.Material -- Keep original materials (no texture downgrade)
+    end
+end
+
+for _, v in pairs(workspace:GetDescendants()) do
+    optimizeParts(v)
+end
+
+print("Optimization script executed: Shadows, reflections, and effects removed. FPS boosted.")
