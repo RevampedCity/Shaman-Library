@@ -251,7 +251,7 @@ main.BackgroundColor3 = Color3.fromRGB(27, 27, 27)
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
 main.Position = UDim2.new(0.361, 0, 0.308, 0)
-main.Size = UDim2.new(0, 450, 0, 321)
+main.Size = UDim2.new(0, 450, 0, 350)
 main.Parent = shamanScreenGui
 
 local uICorner = Instance.new("UICorner")
