@@ -1,5 +1,5 @@
 --[[
-    Advanced Shaman UI Library Rewrite
+    Shaman UI Library Rewrite
     Features:
     - Draggable window
     - Resizable window with grip
@@ -7,20 +7,14 @@
     - Global toggle keybind to open/close UI
     - Settings panel
     - Config save/load (flags + window state + theme + keybind)
-    - Cleaner visuals / gradients / shadows / rounded styling
+    - Clean visuals / gradients / rounded styling
     - Better architecture for extending controls
-
-    Notes:
-    - This is a rewrite focused on the requested core framework features.
-    - It keeps Roblox exploit-style APIs where possible (writefile, isfile, makefolder, etc.).
-    - Replace callbacks / add more widgets as needed.
 ]]
 
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 local LocalPlayer = Players.LocalPlayer
@@ -28,12 +22,16 @@ local Mouse = LocalPlayer:GetMouse()
 
 local isfolder = isfolder or syn_isfolder or is_folder
 local makefolder = makefolder or make_folder or createfolder or create_folder
-local isfile = isfile or readfile and function(path)
-    local ok = pcall(readfile, path)
-    return ok
-end
 local writefile = writefile
 local readfile = readfile
+local isfile = isfile or function(path)
+    if not readfile then
+        return false
+    end
+    return pcall(function()
+        readfile(path)
+    end)
+end
 
 local Library = {
     Flags = {},
@@ -51,8 +49,7 @@ local Library = {
         SubText = Color3.fromRGB(170, 170, 190),
         Success = Color3.fromRGB(70, 215, 140),
         Danger = Color3.fromRGB(255, 95, 95),
-        Warning = Color3.fromRGB(255, 195, 85),
-        Shadow = Color3.fromRGB(0, 0, 0)
+        Warning = Color3.fromRGB(255, 195, 85)
     },
     ConfigFolder = "ShamanRedux",
     ConfigName = "default",
@@ -123,38 +120,11 @@ local function padding(parent, left, right, top, bottom)
 end
 
 local function list(parent, sort, pad)
-    local l = create("UIListLayout", {
+    return create("UIListLayout", {
         SortOrder = sort or Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, pad or 0),
         Parent = parent
     })
-    return l
-end
-
-local function addShadow(parent)
-    local shadow = create("ImageLabel", {
-        Name = "Shadow",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        BackgroundTransparency = 1,
-        Image = "rbxassetid://1316045217",
-        ImageColor3 = Library.Theme.Shadow,
-        ImageTransparency = 0.35,
-        ScaleType = Enum.ScaleType.Slice,
-        SliceCenter = Rect.new(10, 10, 118, 118),
-        Size = UDim2.new(1, 36, 1, 36),
-        Position = UDim2.new(0.5, 0, 0.5, 6),
-        ZIndex = 0,
-        Parent = parent.Parent
-    })
-    return shadow
-end
-
-local function deepCopy(tbl)
-    local new = {}
-    for k, v in pairs(tbl) do
-        new[k] = typeof(v) == "table" and deepCopy(v) or v
-    end
-    return new
 end
 
 function Library:GetConfigPath(name)
@@ -181,7 +151,10 @@ function Library:ApplySerializedTheme(theme)
 end
 
 function Library:SaveConfig(name)
-    if not writefile then return false, "writefile unavailable" end
+    if not writefile then
+        return false, "writefile unavailable"
+    end
+
     local window = self.CurrentWindow
     local payload = {
         flags = self.Flags,
@@ -205,14 +178,24 @@ function Library:SaveConfig(name)
         } or nil
     }
 
-    writefile(self:GetConfigPath(name), HttpService:JSONEncode(payload))
+    local ok, err = pcall(function()
+        writefile(self:GetConfigPath(name), HttpService:JSONEncode(payload))
+    end)
+
+    if not ok then
+        return false, err
+    end
+
     return true
 end
 
 function Library:LoadConfig(name)
-    if not readfile then return false, "readfile unavailable" end
+    if not readfile then
+        return false, "readfile unavailable"
+    end
+
     local path = self:GetConfigPath(name)
-    if not isfile or not isfile(path) then
+    if not isfile(path) then
         return false, "config missing"
     end
 
@@ -242,11 +225,15 @@ function Library:LoadConfig(name)
         end
         if s then
             window.Main.Size = UDim2.new(s[1], s[2], s[3], s[4])
+            window.StoredSize = window.Main.Size
         end
         if decoded.window.minimized ~= nil then
             window:SetMinimized(decoded.window.minimized)
         end
         window:SetOpen(self.IsOpen)
+        if window.ApplyTheme then
+            window:ApplyTheme()
+        end
     end
 
     return true
@@ -269,14 +256,21 @@ function Library:Window(options)
     options = options or {}
 
     local window = {}
-    window.Title = options.Title or options.Text or "Shaman Redux"
+    window.Title = options.Title or options.Text or "Shaman"
     window.Minimized = false
-    window.Sections = {}
     window.Tabs = {}
     window.ActiveTab = nil
-    window.Size = options.Size or UDim2.fromOffset(620, 420)
+    window.StoredSize = options.Size or UDim2.fromOffset(620, 420)
     window.MinSize = options.MinSize or Vector2.new(520, 340)
     window.MaxSize = options.MaxSize or Vector2.new(900, 650)
+    window.ThemeIndex = 1
+    window.ThemeOptions = {
+        {Name = "Purple", Accent = Color3.fromRGB(125, 92, 255), Accent2 = Color3.fromRGB(0, 212, 255)},
+        {Name = "Pink", Accent = Color3.fromRGB(255, 77, 166), Accent2 = Color3.fromRGB(255, 166, 0)},
+        {Name = "Green", Accent = Color3.fromRGB(70, 215, 140), Accent2 = Color3.fromRGB(0, 255, 200)},
+        {Name = "Red", Accent = Color3.fromRGB(255, 95, 95), Accent2 = Color3.fromRGB(255, 170, 120)},
+        {Name = "Blue", Accent = Color3.fromRGB(65, 145, 255), Accent2 = Color3.fromRGB(0, 220, 255)},
+    }
 
     if CoreGui:FindFirstChild("ShamanRedux") then
         CoreGui.ShamanRedux:Destroy()
@@ -300,12 +294,11 @@ function Library:Window(options)
         Name = "Main",
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = window.Size,
+        Size = window.StoredSize,
         BackgroundColor3 = Library.Theme.Background,
         BorderSizePixel = 0,
         Parent = root,
     })
-    addShadow(main)
     corner(main, 18)
     stroke(main, Library.Theme.Stroke, 1)
 
@@ -364,18 +357,6 @@ function Library:Window(options)
         Parent = topbar,
     })
 
-    local subtitle = create("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 16, 0, 18),
-        Size = UDim2.new(1, -130, 0, 22),
-        Font = Enum.Font.Gotham,
-        Text = "Advanced UI framework • draggable • resizable • configurable",
-        TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextColor3 = Library.Theme.SubText,
-        Parent = topbar,
-    })
-
     local actionHolder = create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -14, 0.5, 0),
@@ -409,9 +390,9 @@ function Library:Window(options)
         return button
     end
 
-    local settingsButton = makeAction("⚙", Library.Theme.Accent)
-    local minimizeButton = makeAction("–", Library.Theme.Warning)
-    local closeButton = makeAction("✕", Library.Theme.Danger)
+    local settingsButton = makeAction("S", Library.Theme.Accent)
+    local minimizeButton = makeAction("-", Library.Theme.Warning)
+    local closeButton = makeAction("X", Library.Theme.Danger)
 
     local body = create("Frame", {
         Name = "Body",
@@ -427,7 +408,6 @@ function Library:Window(options)
         Size = UDim2.new(0, 160, 1, 0),
         Parent = body,
     })
-    corner(sidebar, 0)
 
     local tabsHolder = create("ScrollingFrame", {
         Name = "Tabs",
@@ -513,7 +493,7 @@ function Library:Window(options)
         Visible = false,
         AnchorPoint = Vector2.new(1, 0),
         Position = UDim2.new(1, -14, 0, 58),
-        Size = UDim2.fromOffset(220, 230),
+        Size = UDim2.fromOffset(220, 320),
         BackgroundColor3 = Library.Theme.Surface2,
         BorderSizePixel = 0,
         ZIndex = 25,
@@ -522,7 +502,7 @@ function Library:Window(options)
     corner(settingsPanel, 14)
     stroke(settingsPanel, Library.Theme.Stroke, 1)
     padding(settingsPanel, 12, 12, 12, 12)
-    local settingsList = list(settingsPanel, Enum.SortOrder.LayoutOrder, 10)
+    list(settingsPanel, Enum.SortOrder.LayoutOrder, 10)
 
     local settingsTitle = create("TextLabel", {
         BackgroundTransparency = 1,
@@ -560,7 +540,33 @@ function Library:Window(options)
         return b
     end
 
-    local keybindButton = makeSettingsButton("Change Toggle Key (" .. Library.ToggleKey.Name .. ")", function()
+    function window:ApplyTheme()
+        main.BackgroundColor3 = Library.Theme.Background
+        topbar.BackgroundColor3 = Library.Theme.Background2
+        topbarFix.BackgroundColor3 = Library.Theme.Background2
+        sidebar.BackgroundColor3 = Library.Theme.Surface
+        settingsPanel.BackgroundColor3 = Library.Theme.Surface2
+        glowAccent.BackgroundColor3 = Library.Theme.Accent
+        glowAccent2.BackgroundColor3 = Library.Theme.Accent2
+        title.TextColor3 = Library.Theme.Text
+        keyText.TextColor3 = Library.Theme.SubText
+        grip1.BackgroundColor3 = Library.Theme.SubText
+        grip2.BackgroundColor3 = Library.Theme.SubText
+    end
+
+    function window:SetThemeByIndex(index)
+        window.ThemeIndex = index
+        local theme = window.ThemeOptions[index]
+        Library.Theme.Accent = theme.Accent
+        Library.Theme.Accent2 = theme.Accent2
+        window:ApplyTheme()
+        if window.ActiveTab and window.ActiveTab.Accent then
+            window.ActiveTab.Accent.BackgroundColor3 = Library.Theme.Accent
+        end
+    end
+
+    local keybindButton
+    keybindButton = makeSettingsButton("Change Toggle Key (" .. Library.ToggleKey.Name .. ")", function()
         keybindButton.Text = "Press any key..."
         local capture
         capture = UserInputService.InputBegan:Connect(function(input, gp)
@@ -574,30 +580,59 @@ function Library:Window(options)
         end)
     end)
 
+    local themeButton
+    themeButton = makeSettingsButton("Theme Accent: Purple", function()
+        local nextIndex = window.ThemeIndex + 1
+        if nextIndex > #window.ThemeOptions then
+            nextIndex = 1
+        end
+        window:SetThemeByIndex(nextIndex)
+        themeButton.Text = "Theme Accent: " .. window.ThemeOptions[window.ThemeIndex].Name
+    end)
+
     makeSettingsButton("Save Config", function()
-        Library:SaveConfig()
+        local ok = Library:SaveConfig()
+        settingsTitle.Text = ok and "Settings • Saved" or "Settings • Save Failed"
+        task.delay(1, function()
+            if settingsTitle then
+                settingsTitle.Text = "Settings"
+            end
+        end)
     end)
 
     makeSettingsButton("Load Config", function()
-        Library:LoadConfig()
-        keyText.Text = "Toggle: " .. Library.ToggleKey.Name
-        keybindButton.Text = "Change Toggle Key (" .. Library.ToggleKey.Name .. ")"
-    end)
-
-    makeSettingsButton("Toggle Theme Accent", function()
-        if Library.Theme.Accent == Color3.fromRGB(125, 92, 255) then
-            Library.Theme.Accent = Color3.fromRGB(255, 77, 166)
-            Library.Theme.Accent2 = Color3.fromRGB(255, 166, 0)
+        local ok = Library:LoadConfig()
+        if ok then
+            keyText.Text = "Toggle: " .. Library.ToggleKey.Name
+            keybindButton.Text = "Change Toggle Key (" .. Library.ToggleKey.Name .. ")"
+            local found = 1
+            for i, v in ipairs(window.ThemeOptions) do
+                if v.Accent == Library.Theme.Accent then
+                    found = i
+                    break
+                end
+            end
+            window.ThemeIndex = found
+            themeButton.Text = "Theme Accent: " .. window.ThemeOptions[window.ThemeIndex].Name
+            settingsTitle.Text = "Settings • Loaded"
         else
-            Library.Theme.Accent = Color3.fromRGB(125, 92, 255)
-            Library.Theme.Accent2 = Color3.fromRGB(0, 212, 255)
+            settingsTitle.Text = "Settings • Load Failed"
         end
-        glowAccent.BackgroundColor3 = Library.Theme.Accent
-        glowAccent2.BackgroundColor3 = Library.Theme.Accent2
+        task.delay(1, function()
+            if settingsTitle then
+                settingsTitle.Text = "Settings"
+            end
+        end)
     end)
 
     makeSettingsButton("Reset Flags", function()
         Library.Flags = {}
+        settingsTitle.Text = "Settings • Reset"
+        task.delay(1, function()
+            if settingsTitle then
+                settingsTitle.Text = "Settings"
+            end
+        end)
     end)
 
     function window:SetOpen(state)
@@ -607,10 +642,15 @@ function Library:Window(options)
 
     function window:SetMinimized(state)
         window.Minimized = state
-        local targetSize = state and UDim2.new(main.Size.X.Scale, main.Size.X.Offset, 0, 48) or window.Size
-        body.Visible = not state
-        resizeGrip.Visible = not state
-        tween(main, 0.2, {Size = targetSize})
+        if state then
+            body.Visible = false
+            resizeGrip.Visible = false
+            tween(main, 0.2, {Size = UDim2.new(main.Size.X.Scale, main.Size.X.Offset, 0, 48)})
+        else
+            body.Visible = true
+            resizeGrip.Visible = true
+            tween(main, 0.2, {Size = window.StoredSize})
+        end
     end
 
     closeButton.MouseButton1Click:Connect(function()
@@ -668,7 +708,9 @@ function Library:Window(options)
                 input.Changed:Connect(function()
                     if input.UserInputState == Enum.UserInputState.End then
                         resizing = false
-                        window.Size = main.Size
+                        if not window.Minimized then
+                            window.StoredSize = main.Size
+                        end
                     end
                 end)
             end
@@ -680,7 +722,9 @@ function Library:Window(options)
                 local newX = math.clamp(startSize.X + delta.X, window.MinSize.X, window.MaxSize.X)
                 local newY = math.clamp(startSize.Y + delta.Y, window.MinSize.Y, window.MaxSize.Y)
                 main.Size = UDim2.fromOffset(newX, newY)
-                window.Size = main.Size
+                if not window.Minimized then
+                    window.StoredSize = main.Size
+                end
             end
         end)
     end
@@ -700,18 +744,12 @@ function Library:Window(options)
         corner(tabButton, 10)
         stroke(tabButton, Library.Theme.Stroke, 1)
 
-        local tabGlow = create("Frame", {
-            BackgroundTransparency = 1,
-            Size = UDim2.new(1, 0, 1, 0),
-            Parent = tabButton,
-        })
-
         local tabAccent = create("Frame", {
             BackgroundColor3 = Library.Theme.Accent,
             BackgroundTransparency = 0.45,
             Visible = false,
             Size = UDim2.new(1, 0, 1, 0),
-            Parent = tabGlow,
+            Parent = tabButton,
         })
         corner(tabAccent, 10)
 
@@ -771,6 +809,7 @@ function Library:Window(options)
             end
             page.Visible = true
             tabAccent.Visible = true
+            tabAccent.BackgroundColor3 = Library.Theme.Accent
             tween(tabButton, 0.15, {BackgroundColor3 = Color3.fromRGB(38, 30, 66)})
             tween(tabLabel, 0.15, {TextColor3 = Library.Theme.Text})
             window.ActiveTab = tab
@@ -807,7 +846,7 @@ function Library:Window(options)
             padding(frame, 12, 12, 12, 12)
             list(frame, Enum.SortOrder.LayoutOrder, 8)
 
-            local title = create("TextLabel", {
+            create("TextLabel", {
                 BackgroundTransparency = 1,
                 Size = UDim2.new(1, 0, 0, 18),
                 Font = Enum.Font.GothamBold,
@@ -818,17 +857,18 @@ function Library:Window(options)
                 Parent = frame,
             })
 
-            local subtitle = create("TextLabel", {
-                BackgroundTransparency = 1,
-                Size = UDim2.new(1, 0, 0, 14),
-                Font = Enum.Font.Gotham,
-                Text = info.Description or "",
-                TextSize = 10,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextColor3 = Library.Theme.SubText,
-                Visible = info.Description ~= nil,
-                Parent = frame,
-            })
+            if info.Description then
+                create("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 14),
+                    Font = Enum.Font.Gotham,
+                    Text = info.Description,
+                    TextSize = 10,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextColor3 = Library.Theme.SubText,
+                    Parent = frame,
+                })
+            end
 
             local function baseRow(height)
                 return create("Frame", {
@@ -888,7 +928,7 @@ function Library:Window(options)
                 if flag then Library.Flags[flag] = state end
 
                 local row = baseRow(34)
-                local label = create("TextLabel", {
+                create("TextLabel", {
                     BackgroundTransparency = 1,
                     Size = UDim2.new(1, -50, 1, 0),
                     Font = Enum.Font.GothamBold,
@@ -1149,11 +1189,13 @@ function Library:Window(options)
         Library:BindGlobalToggle()
     end
 
+    window:ApplyTheme()
+
     return window
 end
 
 -- Example usage
-local Window = Library:Window({Title = "Shaman X"})
+local Window = Library:Window({Title = "Shaman"})
 
 local MainTab = Window:Tab({Text = "Main"})
 local VisualTab = Window:Tab({Text = "Visuals"})
@@ -1166,7 +1208,7 @@ Combat:Button({Text = "Save Current Config", Callback = function() Library:SaveC
 
 local Misc = MainTab:Section({Text = "Misc", Side = "Right", Description = "Text inputs and labels"})
 Misc:Input({Placeholder = "Webhook / token / whatever", Flag = "input_demo", Callback = function(v) print("Input:", v) end})
-Misc:Label({Text = "This rewrite gives you drag, resize, save/load, settings, and polished visuals."})
+Misc:Label({Text = "Settings now has working accent cycling, save/load, and keybind changing."})
 
 local Theme = VisualTab:Section({Text = "Theme", Side = "Left", Description = "Visual configuration"})
 Theme:Button({Text = "Load Config", Callback = function() Library:LoadConfig() end})
