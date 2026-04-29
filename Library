@@ -1206,9 +1206,7 @@ function Library:Window(options)
                 local click = create("TextButton", {BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", Parent = row})
                 bindCursorDot(click)
                 click.MouseButton1Click:Connect(function() control:Set(not state, false) end)
-                local item = {Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section, Kind = "Keybind"}
-                table.insert(section.Items, item)
-                window:AddSearchItem(item)Toggle"}
+                local item = {Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section, Kind = "Toggle"}
                 table.insert(section.Items, item)
                 window:AddSearchItem(item)
                 section:Refresh(false)
@@ -1420,7 +1418,9 @@ function Library:Window(options)
                     if input.KeyCode == current and data.Callback then task.spawn(data.Callback) end
                 end)
 
-                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section})
+                local item = {Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section, Kind = "Keybind"}
+                table.insert(section.Items, item)
+                window:AddSearchItem(item)
                 section:Refresh(false)
                 return control
             end
