@@ -360,6 +360,7 @@ function Library:Window(options)
     window.Minimized = false
     window.Tabs = {}
     window.SearchItems = {}
+    window.Sections = {}
     window.ActiveTab = nil
     window.StoredSize = options.Size or UDim2.fromOffset(560, 360)
     window.MinSize = options.MinSize or Vector2.new(440, 280)
@@ -414,32 +415,35 @@ function Library:Window(options)
     })
     corner(cursorDot, 999)
 
-    local hoverDotCount = 0
     local function updateCursorDot()
         local inset = GuiService:GetGuiInset()
         local pos = UserInputService:GetMouseLocation() - inset
-        cursorDot.Position = UDim2.fromOffset(pos.X - main.AbsolutePosition.X, pos.Y - main.AbsolutePosition.Y)
+        local relative = pos - main.AbsolutePosition
+        cursorDot.Position = UDim2.fromOffset(relative.X, relative.Y)
+    end
+
+    local function isMouseInsideMain()
+        local inset = GuiService:GetGuiInset()
+        local pos = UserInputService:GetMouseLocation() - inset
+        local mainPos = main.AbsolutePosition
+        local mainSize = main.AbsoluteSize
+        return pos.X >= mainPos.X
+            and pos.X <= mainPos.X + mainSize.X
+            and pos.Y >= mainPos.Y
+            and pos.Y <= mainPos.Y + mainSize.Y
     end
 
     local function bindCursorDot(obj)
-        if not obj or not obj:IsA("GuiObject") then return end
-        obj.MouseEnter:Connect(function()
-            hoverDotCount += 1
-            updateCursorDot()
-            cursorDot.Visible = true
-        end)
-        obj.MouseLeave:Connect(function()
-            hoverDotCount = math.max(0, hoverDotCount - 1)
-            if hoverDotCount == 0 then
-                cursorDot.Visible = false
-            end
-        end)
-        obj.MouseMoved:Connect(updateCursorDot)
+        -- kept for compatibility with older calls; dot now tracks the entire window
     end
 
     UserInputService.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and cursorDot.Visible then
-            updateCursorDot()
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            local inside = isMouseInsideMain()
+            cursorDot.Visible = inside
+            if inside then
+                updateCursorDot()
+            end
         end
     end)
 
@@ -846,21 +850,37 @@ function Library:Window(options)
         query = string.lower(query or "")
         local searching = query ~= ""
 
-        if searching then
-            for _, tab in ipairs(window.Tabs) do
-                tab.Page.Visible = true
-            end
-        else
-            for _, tab in ipairs(window.Tabs) do
-                tab.Page.Visible = tab == window.ActiveTab
-            end
+        for _, tab in ipairs(window.Tabs) do
+            tab.Page.Visible = searching or tab == window.ActiveTab
         end
 
         for _, item in ipairs(window.SearchItems) do
-            local match = not searching or string.find(string.lower(item.Text), query, 1, true) ~= nil
-            item.Object.Visible = match
-            if item.Section and match then
-                item.Section:SetOpen(true, false)
+            if item.Kind ~= "Section" then
+                local match = not searching or string.find(string.lower(item.Text), query, 1, true) ~= nil
+                item.Object.Visible = match
+                if match and item.Section then
+                    item.Section.Frame.Visible = true
+                    item.Section:SetOpen(true, false)
+                end
+            end
+        end
+
+        for _, section in ipairs(window.Sections or {}) do
+            if searching then
+                local anyChildMatch = false
+                for _, item in ipairs(section.Items) do
+                    if item.Object.Visible then
+                        anyChildMatch = true
+                        break
+                    end
+                end
+                local sectionNameMatch = string.find(string.lower(section.SearchText), query, 1, true) ~= nil
+                section.Frame.Visible = anyChildMatch or sectionNameMatch
+                if sectionNameMatch or anyChildMatch then
+                    section:SetOpen(true, false)
+                end
+            else
+                section.Frame.Visible = true
             end
         end
     end
@@ -1065,10 +1085,15 @@ function Library:Window(options)
                 if section.Open then section:Refresh(false) end
             end)
 
+            section.Frame = frame
+            section.Items = {}
+            section.SearchText = safeText(tab.Title, info.Text, info.Description)
+            table.insert(window.Sections, section)
             window:AddSearchItem({
-                Text = safeText(tab.Title, info.Text, info.Description),
+                Text = section.SearchText,
                 Object = frame,
                 Section = section,
+                Kind = "Section",
             })
 
             local function baseRow(height)
@@ -1093,7 +1118,9 @@ function Library:Window(options)
                     TextColor3 = data.Color or Library.Theme.SubText,
                     Parent = row,
                 })
-                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text), Object = row, Section = section})
+                local item = {Text = safeText(tab.Title, info.Text, data.Text), Object = row, Section = section, Kind = "Label"}
+                table.insert(section.Items, item)
+                window:AddSearchItem(item)
                 section:Refresh(false)
             end
 
@@ -1118,7 +1145,9 @@ function Library:Window(options)
                 button.MouseButton1Click:Connect(function()
                     if data.Callback then task.spawn(data.Callback) end
                 end)
-                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip), Object = button, Section = section})
+                local item = {Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip), Object = button, Section = section, Kind = "Button"}
+                table.insert(section.Items, item)
+                window:AddSearchItem(item)
                 section:Refresh(false)
                 return button
             end
@@ -1177,7 +1206,11 @@ function Library:Window(options)
                 local click = create("TextButton", {BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", Parent = row})
                 bindCursorDot(click)
                 click.MouseButton1Click:Connect(function() control:Set(not state, false) end)
-                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section})
+                local item = {Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section, Kind = "Keybind"}
+                table.insert(section.Items, item)
+                window:AddSearchItem(item)Toggle"}
+                table.insert(section.Items, item)
+                window:AddSearchItem(item)
                 section:Refresh(false)
                 return control
             end
@@ -1220,7 +1253,9 @@ function Library:Window(options)
                     if data.Callback then task.spawn(function() data.Callback(box.Text) end) end
                 end)
 
-                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Placeholder, data.Tooltip, flag), Object = box, Section = section})
+                local item = {Text = safeText(tab.Title, info.Text, data.Text, data.Placeholder, data.Tooltip, flag), Object = box, Section = section, Kind = "Input"}
+                table.insert(section.Items, item)
+                window:AddSearchItem(item)
                 section:Refresh(false)
                 return control
             end
@@ -1306,7 +1341,9 @@ function Library:Window(options)
                     if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then setFromMouse() end
                 end)
 
-                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = holder, Section = section})
+                local item = {Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = holder, Section = section, Kind = "Slider"}
+                table.insert(section.Items, item)
+                window:AddSearchItem(item)
                 section:Refresh(false)
                 return control
             end
