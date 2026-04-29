@@ -1,21 +1,22 @@
 --[[
     Shaman UI Library
-    - Draggable
-    - Resizable
-    - Minimize / Close
-    - Global toggle keybind
+    Compact dark-grey UI library with:
+    - Draggable + resizable window
+    - Safe minimize / restore that clamps on screen
+    - Close button
+    - Global open / close keybind
     - Settings panel
-    - Save / Load config
-    - Collapsible animated sections with arrows
-    - Compact stealth dark-grey styling
-    - Search bar
+    - Config save/load with visual restore
+    - Animated collapsible sections
+    - Global search across every tab
+    - Accurate mouse hover dot
     - Tooltips
-    - Visual state restore from saved config
 ]]
 
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 
@@ -37,20 +38,9 @@ end
 
 local Library = {
     Flags = {},
+    Registry = {},
     Windows = {},
     Connections = {},
-    Registry = {},
-    Theme = {
-        Background = Color3.fromRGB(14, 14, 14),
-        Background2 = Color3.fromRGB(18, 18, 18),
-        Surface = Color3.fromRGB(22, 22, 22),
-        Surface2 = Color3.fromRGB(28, 28, 28),
-        Stroke = Color3.fromRGB(42, 42, 42),
-        Accent = Color3.fromRGB(72, 72, 72),
-        Accent2 = Color3.fromRGB(58, 58, 58),
-        Text = Color3.fromRGB(228, 228, 228),
-        SubText = Color3.fromRGB(145, 145, 145),
-    },
     ConfigFolder = "ShamanRedux",
     ConfigName = "default",
     ToggleKey = Enum.KeyCode.RightShift,
@@ -58,6 +48,17 @@ local Library = {
     CurrentWindow = nil,
     TooltipGui = nil,
     Tooltip = nil,
+    Theme = {
+        Background = Color3.fromRGB(14, 14, 14),
+        Background2 = Color3.fromRGB(18, 18, 18),
+        Surface = Color3.fromRGB(22, 22, 22),
+        Surface2 = Color3.fromRGB(28, 28, 28),
+        Surface3 = Color3.fromRGB(34, 34, 34),
+        Stroke = Color3.fromRGB(42, 42, 42),
+        Accent = Color3.fromRGB(72, 72, 72),
+        Text = Color3.fromRGB(228, 228, 228),
+        SubText = Color3.fromRGB(145, 145, 145),
+    },
     Blacklist = {
         [Enum.KeyCode.Unknown] = true,
         [Enum.KeyCode.CapsLock] = true,
@@ -73,32 +74,28 @@ local Library = {
     }
 }
 
-if not isfolder(Library.ConfigFolder) then
+if isfolder and makefolder and not isfolder(Library.ConfigFolder) then
     makefolder(Library.ConfigFolder)
 end
 
-local function tween(obj, time, props, style, direction)
-    local t = TweenService:Create(
-        obj,
-        TweenInfo.new(time or 0.14, style or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out),
-        props
-    )
+local function create(class, props)
+    local inst = Instance.new(class)
+    for k, v in pairs(props or {}) do
+        inst[k] = v
+    end
+    return inst
+end
+
+local function tween(obj, time, props)
+    local t = TweenService:Create(obj, TweenInfo.new(time or 0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
     t:Play()
     return t
 end
 
-local function create(class, props)
-    local instance = Instance.new(class)
-    for k, v in pairs(props or {}) do
-        instance[k] = v
-    end
-    return instance
-end
-
 local function corner(parent, radius)
-    create("UICorner", {
+    return create("UICorner", {
         CornerRadius = UDim.new(0, radius or 6),
-        Parent = parent
+        Parent = parent,
     })
 end
 
@@ -107,116 +104,36 @@ local function stroke(parent, color, thickness, transparency)
         Color = color or Library.Theme.Stroke,
         Thickness = thickness or 1,
         Transparency = transparency or 0,
-        Parent = parent
+        Parent = parent,
     })
 end
 
-local function padding(parent, left, right, top, bottom)
-    create("UIPadding", {
-        PaddingLeft = UDim.new(0, left or 0),
-        PaddingRight = UDim.new(0, right or 0),
-        PaddingTop = UDim.new(0, top or 0),
-        PaddingBottom = UDim.new(0, bottom or 0),
-        Parent = parent
+local function padding(parent, l, r, t, b)
+    return create("UIPadding", {
+        PaddingLeft = UDim.new(0, l or 0),
+        PaddingRight = UDim.new(0, r or 0),
+        PaddingTop = UDim.new(0, t or 0),
+        PaddingBottom = UDim.new(0, b or 0),
+        Parent = parent,
     })
 end
 
-local function list(parent, sort, pad)
+local function list(parent, pad)
     return create("UIListLayout", {
-        SortOrder = sort or Enum.SortOrder.LayoutOrder,
+        SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, pad or 0),
-        Parent = parent
+        Parent = parent,
     })
 end
 
-function Library:InitTooltip()
-    if self.TooltipGui and self.TooltipGui.Parent then
-        return
+local function safeText(...)
+    local out = {}
+    for _, v in ipairs({...}) do
+        if v ~= nil then
+            table.insert(out, tostring(v))
+        end
     end
-
-    local gui = create("ScreenGui", {
-        Name = "ShamanTooltips",
-        ResetOnSpawn = false,
-        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-        Parent = CoreGui,
-    })
-
-    local frame = create("Frame", {
-        Visible = false,
-        BackgroundColor3 = self.Theme.Surface2,
-        BorderSizePixel = 0,
-        Size = UDim2.fromOffset(120, 18),
-        Parent = gui,
-        ZIndex = 50,
-    })
-    corner(frame, 5)
-    stroke(frame, self.Theme.Stroke, 1)
-
-    local label = create("TextLabel", {
-        BackgroundTransparency = 1,
-        Size = UDim2.new(1, -8, 1, 0),
-        Position = UDim2.new(0, 4, 0, 0),
-        Font = Enum.Font.Gotham,
-        TextSize = 9,
-        TextColor3 = self.Theme.Text,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = frame,
-        ZIndex = 51,
-    })
-
-    self.TooltipGui = gui
-    self.Tooltip = {Frame = frame, Label = label}
-end
-
-function Library:AddTooltip(object, text)
-    if not text or text == "" then return end
-    self:InitTooltip()
-
-    local hover = false
-    local function update()
-        local pos = UserInputService:GetMouseLocation()
-        local bounds = self.Tooltip.Label.TextBounds
-        self.Tooltip.Frame.Size = UDim2.fromOffset(bounds.X + 10, 18)
-        self.Tooltip.Frame.Position = UDim2.fromOffset(pos.X + 12, pos.Y - 6)
-    end
-
-    object.MouseEnter:Connect(function()
-        hover = true
-        self.Tooltip.Label.Text = text
-        update()
-        task.delay(0.25, function()
-            if hover then
-                self.Tooltip.Frame.Visible = true
-            end
-        end)
-    end)
-
-    object.MouseLeave:Connect(function()
-        hover = false
-        self.Tooltip.Frame.Visible = false
-    end)
-
-    if object:IsA("GuiObject") then
-        object.MouseMoved:Connect(update)
-    end
-end
-
-function Library:RegisterFlag(flag, control)
-    if not flag then return end
-    self.Registry[flag] = control
-end
-
-function Library:ApplyFlagToControl(flag, value)
-    local control = self.Registry[flag]
-    if control and control.Set then
-        control:Set(value, true)
-    end
-end
-
-function Library:ApplyAllFlags()
-    for flag, value in pairs(self.Flags) do
-        self:ApplyFlagToControl(flag, value)
-    end
+    return table.concat(out, " ")
 end
 
 function Library:GetConfigPath(name)
@@ -242,6 +159,23 @@ function Library:ApplySerializedTheme(theme)
     end
 end
 
+function Library:RegisterFlag(flag, control)
+    if not flag then return end
+    self.Registry[flag] = control
+    if self.Flags[flag] ~= nil and control.Set then
+        control:Set(self.Flags[flag], true)
+    end
+end
+
+function Library:ApplyAllFlags()
+    for flag, value in pairs(self.Flags) do
+        local control = self.Registry[flag]
+        if control and control.Set then
+            control:Set(value, true)
+        end
+    end
+end
+
 function Library:SaveConfig(name)
     if not writefile then
         return false, "writefile unavailable"
@@ -261,10 +195,10 @@ function Library:SaveConfig(name)
                 window.Main.Position.Y.Offset,
             },
             size = {
-                window.Main.Size.X.Scale,
-                window.Main.Size.X.Offset,
-                window.Main.Size.Y.Scale,
-                window.Main.Size.Y.Offset,
+                window.StoredSize.X.Scale,
+                window.StoredSize.X.Offset,
+                window.StoredSize.Y.Scale,
+                window.StoredSize.Y.Offset,
             },
             minimized = window.Minimized,
         } or nil
@@ -316,16 +250,18 @@ function Library:LoadConfig(name)
             window.Main.Position = UDim2.new(p[1], p[2], p[3], p[4])
         end
         if s then
-            window.Main.Size = UDim2.new(s[1], s[2], s[3], s[4])
-            window.StoredSize = window.Main.Size
+            window.StoredSize = UDim2.new(s[1], s[2], s[3], s[4])
+            if not window.Minimized then
+                window.Main.Size = window.StoredSize
+            end
+        end
+        if window.ApplyTheme then
+            window:ApplyTheme()
         end
         if decoded.window.minimized ~= nil then
             window:SetMinimized(decoded.window.minimized)
         end
         window:SetOpen(self.IsOpen)
-        if window.ApplyTheme then
-            window:ApplyTheme()
-        end
     end
 
     self:ApplyAllFlags()
@@ -336,9 +272,80 @@ function Library:SetToggleKey(key)
     self.ToggleKey = key
 end
 
+function Library:InitTooltip()
+    if self.TooltipGui and self.TooltipGui.Parent then return end
+
+    local gui = create("ScreenGui", {
+        Name = "ShamanTooltips",
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        Parent = CoreGui,
+    })
+
+    local frame = create("Frame", {
+        Visible = false,
+        BackgroundColor3 = self.Theme.Surface2,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(80, 18),
+        ZIndex = 90,
+        Parent = gui,
+    })
+    corner(frame, 5)
+    stroke(frame, self.Theme.Stroke, 1)
+
+    local label = create("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(5, 0),
+        Size = UDim2.new(1, -10, 1, 0),
+        Font = Enum.Font.Gotham,
+        TextSize = 9,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextColor3 = self.Theme.Text,
+        ZIndex = 91,
+        Parent = frame,
+    })
+
+    self.TooltipGui = gui
+    self.Tooltip = {Frame = frame, Label = label}
+end
+
+function Library:AddTooltip(obj, text)
+    if not text or text == "" then return end
+    self:InitTooltip()
+
+    local hovering = false
+    local function update()
+        local inset = GuiService:GetGuiInset()
+        local pos = UserInputService:GetMouseLocation() - inset
+        local bounds = self.Tooltip.Label.TextBounds
+        self.Tooltip.Frame.Size = UDim2.fromOffset(bounds.X + 12, 18)
+        self.Tooltip.Frame.Position = UDim2.fromOffset(pos.X + 12, pos.Y + 10)
+    end
+
+    obj.MouseEnter:Connect(function()
+        hovering = true
+        self.Tooltip.Label.Text = text
+        update()
+        task.delay(0.25, function()
+            if hovering and self.Tooltip then
+                self.Tooltip.Frame.Visible = true
+            end
+        end)
+    end)
+
+    obj.MouseLeave:Connect(function()
+        hovering = false
+        if self.Tooltip then
+            self.Tooltip.Frame.Visible = false
+        end
+    end)
+
+    obj.MouseMoved:Connect(update)
+end
+
 function Library:BindGlobalToggle()
-    table.insert(self.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
+    table.insert(self.Connections, UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
         if input.KeyCode == self.ToggleKey and self.CurrentWindow then
             self.CurrentWindow:SetOpen(not self.IsOpen)
         end
@@ -352,26 +359,22 @@ function Library:Window(options)
     window.Title = options.Title or options.Text or "Shaman"
     window.Minimized = false
     window.Tabs = {}
-    window.ActiveTab = nil
     window.SearchItems = {}
+    window.ActiveTab = nil
     window.StoredSize = options.Size or UDim2.fromOffset(560, 360)
     window.MinSize = options.MinSize or Vector2.new(440, 280)
     window.MaxSize = options.MaxSize or Vector2.new(760, 520)
     window.ThemeIndex = 1
     window.ThemeOptions = {
-        {Name = "Graphite", Accent = Color3.fromRGB(72, 72, 72), Accent2 = Color3.fromRGB(58, 58, 58)},
-        {Name = "Slate", Accent = Color3.fromRGB(82, 82, 82), Accent2 = Color3.fromRGB(64, 64, 64)},
-        {Name = "Carbon", Accent = Color3.fromRGB(62, 62, 62), Accent2 = Color3.fromRGB(50, 50, 50)},
+        {Name = "Graphite", Accent = Color3.fromRGB(72, 72, 72)},
+        {Name = "Slate", Accent = Color3.fromRGB(82, 82, 82)},
+        {Name = "Carbon", Accent = Color3.fromRGB(62, 62, 62)},
     }
 
-    if CoreGui:FindFirstChild("ShamanRedux") then
-        CoreGui.ShamanRedux:Destroy()
-    end
-    if CoreGui:FindFirstChild("ShamanTooltips") then
-        CoreGui.ShamanTooltips:Destroy()
-        Library.TooltipGui = nil
-        Library.Tooltip = nil
-    end
+    if CoreGui:FindFirstChild("ShamanRedux") then CoreGui.ShamanRedux:Destroy() end
+    if CoreGui:FindFirstChild("ShamanTooltips") then CoreGui.ShamanTooltips:Destroy() end
+    Library.TooltipGui = nil
+    Library.Tooltip = nil
 
     local gui = create("ScreenGui", {
         Name = "ShamanRedux",
@@ -399,6 +402,47 @@ function Library:Window(options)
     corner(main, 10)
     stroke(main, Library.Theme.Stroke, 1)
 
+    local cursorDot = create("Frame", {
+        Name = "CursorDot",
+        Visible = false,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Size = UDim2.fromOffset(5, 5),
+        BackgroundColor3 = Color3.fromRGB(210, 210, 210),
+        BorderSizePixel = 0,
+        ZIndex = 100,
+        Parent = main,
+    })
+    corner(cursorDot, 999)
+
+    local hoverDotCount = 0
+    local function updateCursorDot()
+        local inset = GuiService:GetGuiInset()
+        local pos = UserInputService:GetMouseLocation() - inset
+        cursorDot.Position = UDim2.fromOffset(pos.X - main.AbsolutePosition.X, pos.Y - main.AbsolutePosition.Y)
+    end
+
+    local function bindCursorDot(obj)
+        if not obj or not obj:IsA("GuiObject") then return end
+        obj.MouseEnter:Connect(function()
+            hoverDotCount += 1
+            updateCursorDot()
+            cursorDot.Visible = true
+        end)
+        obj.MouseLeave:Connect(function()
+            hoverDotCount = math.max(0, hoverDotCount - 1)
+            if hoverDotCount == 0 then
+                cursorDot.Visible = false
+            end
+        end)
+        obj.MouseMoved:Connect(updateCursorDot)
+    end
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and cursorDot.Visible then
+            updateCursorDot()
+        end
+    end)
+
     local topbar = create("Frame", {
         Name = "Topbar",
         BackgroundColor3 = Library.Theme.Background2,
@@ -418,7 +462,7 @@ function Library:Window(options)
 
     local title = create("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 10, 0, 0),
+        Position = UDim2.fromOffset(10, 0),
         Size = UDim2.new(1, -96, 1, 0),
         Font = Enum.Font.GothamBold,
         Text = window.Title,
@@ -428,40 +472,6 @@ function Library:Window(options)
         Parent = topbar,
     })
 
-    local cursorDot = create("Frame", {
-        Name = "CursorDot",
-        Visible = false,
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Size = UDim2.fromOffset(4, 4),
-        BackgroundColor3 = Color3.fromRGB(210, 210, 210),
-        BorderSizePixel = 0,
-        ZIndex = 80,
-        Parent = main,
-    })
-    corner(cursorDot, 999)
-
-    local dotHoverCount = 0
-    local function bindCursorDot(obj)
-        if not obj or not obj:IsA("GuiObject") then return end
-        obj.MouseEnter:Connect(function()
-            dotHoverCount = dotHoverCount + 1
-            cursorDot.Visible = true
-        end)
-        obj.MouseLeave:Connect(function()
-            dotHoverCount = math.max(0, dotHoverCount - 1)
-            if dotHoverCount == 0 then
-                cursorDot.Visible = false
-            end
-        end)
-    end
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and cursorDot.Visible then
-            local pos = UserInputService:GetMouseLocation()
-            cursorDot.Position = UDim2.fromOffset(pos.X - main.AbsolutePosition.X, pos.Y - main.AbsolutePosition.Y)
-        end
-    end)
-
     local actionHolder = create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -10, 0.5, 0),
@@ -469,11 +479,11 @@ function Library:Window(options)
         BackgroundTransparency = 1,
         Parent = topbar,
     })
-    local actionList = list(actionHolder, Enum.SortOrder.LayoutOrder, 6)
+    local actionList = list(actionHolder, 6)
     actionList.FillDirection = Enum.FillDirection.Horizontal
     actionList.HorizontalAlignment = Enum.HorizontalAlignment.Right
 
-    local function makeAction(text, hoverColor, tooltip)
+    local function makeAction(text, tooltip)
         local button = create("TextButton", {
             Size = UDim2.fromOffset(20, 20),
             BackgroundColor3 = Library.Theme.Surface2,
@@ -486,27 +496,21 @@ function Library:Window(options)
         })
         corner(button, 5)
         stroke(button, Library.Theme.Stroke, 1)
+        bindCursorDot(button)
         Library:AddTooltip(button, tooltip)
-        button.MouseEnter:Connect(function()
-            tween(button, 0.1, {BackgroundColor3 = hoverColor})
-        end)
-        button.MouseLeave:Connect(function()
-            tween(button, 0.1, {BackgroundColor3 = Library.Theme.Surface2})
-        end)
+        button.MouseEnter:Connect(function() tween(button, 0.1, {BackgroundColor3 = Library.Theme.Accent}) end)
+        button.MouseLeave:Connect(function() tween(button, 0.1, {BackgroundColor3 = Library.Theme.Surface2}) end)
         return button
     end
 
-    local settingsButton = makeAction("S", Library.Theme.Accent, "Settings")
-    local minimizeButton = makeAction("-", Library.Theme.Accent, "Minimize")
-    local closeButton = makeAction("X", Library.Theme.Accent, "Close")
-    bindCursorDot(settingsButton)
-    bindCursorDot(minimizeButton)
-    bindCursorDot(closeButton)
+    local settingsButton = makeAction("S", "Settings")
+    local minimizeButton = makeAction("-", "Minimize")
+    local closeButton = makeAction("X", "Close")
 
     local body = create("Frame", {
         Name = "Body",
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 0, 0, 34),
+        Position = UDim2.fromOffset(0, 34),
         Size = UDim2.new(1, 0, 1, -34),
         Parent = main,
     })
@@ -514,16 +518,18 @@ function Library:Window(options)
     local sidebar = create("Frame", {
         Name = "Sidebar",
         BackgroundColor3 = Library.Theme.Surface,
+        BorderSizePixel = 0,
         Size = UDim2.new(0, 138, 1, 0),
         Parent = body,
     })
 
     local searchBox = create("TextBox", {
+        Name = "SearchBox",
         BackgroundColor3 = Library.Theme.Surface2,
-        Position = UDim2.new(0, 8, 0, 8),
+        Position = UDim2.fromOffset(8, 8),
         Size = UDim2.new(1, -16, 0, 20),
         ClearTextOnFocus = false,
-        PlaceholderText = "search...",
+        PlaceholderText = "search all...",
         Text = "",
         Font = Enum.Font.Gotham,
         TextSize = 9,
@@ -543,12 +549,12 @@ function Library:Window(options)
         ScrollBarThickness = 0,
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
         CanvasSize = UDim2.new(),
-        Position = UDim2.new(0, 0, 0, 30),
+        Position = UDim2.fromOffset(0, 30),
         Size = UDim2.new(1, 0, 1, -64),
         Parent = sidebar,
     })
     padding(tabsHolder, 8, 8, 8, 8)
-    list(tabsHolder, Enum.SortOrder.LayoutOrder, 6)
+    list(tabsHolder, 6)
 
     local footer = create("Frame", {
         BackgroundTransparency = 1,
@@ -556,9 +562,10 @@ function Library:Window(options)
         Size = UDim2.new(1, -16, 0, 18),
         Parent = sidebar,
     })
+
     local keyText = create("TextLabel", {
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 1, 0),
+        Size = UDim2.fromScale(1, 1),
         Font = Enum.Font.Gotham,
         Text = "Toggle: " .. Library.ToggleKey.Name,
         TextSize = 9,
@@ -570,14 +577,14 @@ function Library:Window(options)
     local content = create("Frame", {
         Name = "Content",
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 138, 0, 0),
+        Position = UDim2.fromOffset(138, 0),
         Size = UDim2.new(1, -138, 1, 0),
         Parent = body,
     })
 
     local contentPadding = create("Frame", {
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 8, 0, 8),
+        Position = UDim2.fromOffset(8, 8),
         Size = UDim2.new(1, -16, 1, -16),
         Parent = content,
     })
@@ -593,16 +600,25 @@ function Library:Window(options)
         BackgroundTransparency = 1,
         Parent = main,
     })
+    bindCursorDot(resizeGrip)
 
     local grip1 = create("Frame", {
-        AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, 0),
-        Size = UDim2.fromOffset(10, 2), Rotation = -45,
-        BackgroundColor3 = Library.Theme.SubText, BorderSizePixel = 0, Parent = resizeGrip,
+        AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.new(1, 0, 1, 0),
+        Size = UDim2.fromOffset(10, 2),
+        Rotation = -45,
+        BackgroundColor3 = Library.Theme.SubText,
+        BorderSizePixel = 0,
+        Parent = resizeGrip,
     })
     local grip2 = create("Frame", {
-        AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -3, 1, 0),
-        Size = UDim2.fromOffset(6, 2), Rotation = -45,
-        BackgroundColor3 = Library.Theme.SubText, BorderSizePixel = 0, Parent = resizeGrip,
+        AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.new(1, -3, 1, 0),
+        Size = UDim2.fromOffset(6, 2),
+        Rotation = -45,
+        BackgroundColor3 = Library.Theme.SubText,
+        BorderSizePixel = 0,
+        Parent = resizeGrip,
     })
 
     local settingsPanel = create("Frame", {
@@ -619,7 +635,7 @@ function Library:Window(options)
     corner(settingsPanel, 8)
     stroke(settingsPanel, Library.Theme.Stroke, 1)
     padding(settingsPanel, 8, 8, 8, 8)
-    list(settingsPanel, Enum.SortOrder.LayoutOrder, 6)
+    list(settingsPanel, 6)
 
     local settingsTitle = create("TextLabel", {
         BackgroundTransparency = 1,
@@ -647,13 +663,10 @@ function Library:Window(options)
         })
         corner(b, 5)
         stroke(b, Library.Theme.Stroke, 1)
+        bindCursorDot(b)
         Library:AddTooltip(b, tooltip)
-        b.MouseEnter:Connect(function()
-            tween(b, 0.1, {BackgroundColor3 = Library.Theme.Accent})
-        end)
-        b.MouseLeave:Connect(function()
-            tween(b, 0.1, {BackgroundColor3 = Library.Theme.Surface})
-        end)
+        b.MouseEnter:Connect(function() tween(b, 0.1, {BackgroundColor3 = Library.Theme.Accent}) end)
+        b.MouseLeave:Connect(function() tween(b, 0.1, {BackgroundColor3 = Library.Theme.Surface}) end)
         b.MouseButton1Click:Connect(callback)
         return b
     end
@@ -679,9 +692,8 @@ function Library:Window(options)
         window.ThemeIndex = index
         local theme = window.ThemeOptions[index]
         Library.Theme.Accent = theme.Accent
-        Library.Theme.Accent2 = theme.Accent2
         window:ApplyTheme()
-        if window.ActiveTab and window.ActiveTab.Accent then
+        if window.ActiveTab then
             window.ActiveTab.Accent.BackgroundColor3 = Library.Theme.Accent
         end
     end
@@ -699,7 +711,7 @@ function Library:Window(options)
                 capture:Disconnect()
             end
         end)
-    end, "Change the global open / close key")
+    end, "Change open / close key")
 
     local themeButton
     themeButton = makeSettingsButton("Theme: Graphite", function()
@@ -707,13 +719,13 @@ function Library:Window(options)
         if nextIndex > #window.ThemeOptions then nextIndex = 1 end
         window:SetThemeByIndex(nextIndex)
         themeButton.Text = "Theme: " .. window.ThemeOptions[window.ThemeIndex].Name
-    end, "Cycle monochrome variants")
+    end, "Cycle dark grey theme")
 
     makeSettingsButton("Save Config", function()
         local ok = Library:SaveConfig()
         settingsTitle.Text = ok and "Settings • Saved" or "Settings • Failed"
         task.delay(1, function() if settingsTitle then settingsTitle.Text = "Settings" end end)
-    end, "Save all current flags and window state")
+    end, "Save all current options")
 
     makeSettingsButton("Load Config", function()
         local ok = Library:LoadConfig()
@@ -725,7 +737,7 @@ function Library:Window(options)
             settingsTitle.Text = "Settings • Failed"
         end
         task.delay(1, function() if settingsTitle then settingsTitle.Text = "Settings" end end)
-    end, "Load saved flags and restore visuals")
+    end, "Load saved options")
 
     function window:SetOpen(state)
         Library.IsOpen = state
@@ -752,19 +764,17 @@ function Library:Window(options)
             window.StoredSize = main.Size
             resizeGrip.Visible = false
             body.Visible = true
-            tween(body, 0.14, {Position = UDim2.new(0, 0, 0, -8)})
+            tween(body, 0.14, {Position = UDim2.fromOffset(0, -8)})
             task.delay(0.12, function()
-                if window.Minimized then
-                    body.Visible = false
-                end
+                if window.Minimized then body.Visible = false end
             end)
             tween(main, 0.18, {Size = UDim2.new(main.Size.X.Scale, main.Size.X.Offset, 0, 34)})
         else
             body.Visible = true
-            body.Position = UDim2.new(0, 0, 0, -8)
+            body.Position = UDim2.fromOffset(0, -8)
             resizeGrip.Visible = true
             tween(main, 0.18, {Size = window.StoredSize})
-            tween(body, 0.16, {Position = UDim2.new(0, 0, 0, 34)})
+            tween(body, 0.16, {Position = UDim2.fromOffset(0, 34)})
             task.delay(0.2, function()
                 window:ClampToScreen()
             end)
@@ -777,13 +787,8 @@ function Library:Window(options)
         Library.CurrentWindow = nil
     end)
 
-    minimizeButton.MouseButton1Click:Connect(function()
-        window:SetMinimized(not window.Minimized)
-    end)
-
-    settingsButton.MouseButton1Click:Connect(function()
-        settingsPanel.Visible = not settingsPanel.Visible
-    end)
+    minimizeButton.MouseButton1Click:Connect(function() window:SetMinimized(not window.Minimized) end)
+    settingsButton.MouseButton1Click:Connect(function() settingsPanel.Visible = not settingsPanel.Visible end)
 
     do
         local dragging = false
@@ -833,11 +838,30 @@ function Library:Window(options)
         end)
     end
 
+    function window:AddSearchItem(data)
+        table.insert(window.SearchItems, data)
+    end
+
     function window:ApplySearch(query)
         query = string.lower(query or "")
+        local searching = query ~= ""
+
+        if searching then
+            for _, tab in ipairs(window.Tabs) do
+                tab.Page.Visible = true
+            end
+        else
+            for _, tab in ipairs(window.Tabs) do
+                tab.Page.Visible = tab == window.ActiveTab
+            end
+        end
+
         for _, item in ipairs(window.SearchItems) do
-            local visible = query == "" or string.find(string.lower(item.Text), query, 1, true) ~= nil
-            item.Object.Visible = visible
+            local match = not searching or string.find(string.lower(item.Text), query, 1, true) ~= nil
+            item.Object.Visible = match
+            if item.Section and match then
+                item.Section:SetOpen(true, false)
+            end
         end
     end
 
@@ -851,34 +875,75 @@ function Library:Window(options)
         tab.Title = info.Text or info.Title or "Tab"
 
         local tabButton = create("TextButton", {
-            Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = Library.Theme.Surface2, Text = "",
-            AutoButtonColor = false, Parent = tabsHolder,
+            Size = UDim2.new(1, 0, 0, 24),
+            BackgroundColor3 = Library.Theme.Surface2,
+            Text = "",
+            AutoButtonColor = false,
+            Parent = tabsHolder,
         })
         corner(tabButton, 5)
         stroke(tabButton, Library.Theme.Stroke, 1)
+        bindCursorDot(tabButton)
         Library:AddTooltip(tabButton, "Open " .. tab.Title)
 
         local tabAccent = create("Frame", {
-            BackgroundColor3 = Library.Theme.Accent, BackgroundTransparency = 0.35,
-            Visible = false, Size = UDim2.new(1, 0, 1, 0), Parent = tabButton,
+            BackgroundColor3 = Library.Theme.Accent,
+            BackgroundTransparency = 0.35,
+            Visible = false,
+            Size = UDim2.fromScale(1, 1),
+            Parent = tabButton,
         })
         corner(tabAccent, 5)
 
         local tabLabel = create("TextLabel", {
-            BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 0), Size = UDim2.new(1, -16, 1, 0),
-            Text = tab.Title, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
-            TextColor3 = Library.Theme.SubText, Parent = tabButton,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(8, 0),
+            Size = UDim2.new(1, -16, 1, 0),
+            Text = tab.Title,
+            Font = Enum.Font.GothamBold,
+            TextSize = 10,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextColor3 = Library.Theme.SubText,
+            Parent = tabButton,
         })
 
-        local page = create("Frame", {Name = tab.Title .. "Page", BackgroundTransparency = 1, Visible = false, Size = UDim2.new(1, 0, 1, 0), Parent = pages})
-        local left = create("ScrollingFrame", {Name = "Left", BackgroundTransparency = 1, BorderSizePixel = 0, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollBarThickness = 3, Size = UDim2.new(0.5, -5, 1, 0), Parent = page})
+        local page = create("Frame", {
+            Name = tab.Title .. "Page",
+            BackgroundTransparency = 1,
+            Visible = false,
+            Size = UDim2.fromScale(1, 1),
+            Parent = pages,
+        })
+
+        local left = create("ScrollingFrame", {
+            Name = "Left",
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            CanvasSize = UDim2.new(),
+            ScrollBarThickness = 3,
+            Size = UDim2.new(0.5, -5, 1, 0),
+            Parent = page,
+        })
         padding(left, 0, 3, 0, 0)
-        list(left, Enum.SortOrder.LayoutOrder, 6)
-        local right = create("ScrollingFrame", {Name = "Right", BackgroundTransparency = 1, BorderSizePixel = 0, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollBarThickness = 3, Position = UDim2.new(0.5, 5, 0, 0), Size = UDim2.new(0.5, -5, 1, 0), Parent = page})
+        list(left, 6)
+
+        local right = create("ScrollingFrame", {
+            Name = "Right",
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            CanvasSize = UDim2.new(),
+            ScrollBarThickness = 3,
+            Position = UDim2.new(0.5, 5, 0, 0),
+            Size = UDim2.new(0.5, -5, 1, 0),
+            Parent = page,
+        })
         padding(right, 3, 0, 0, 0)
-        list(right, Enum.SortOrder.LayoutOrder, 6)
+        list(right, 6)
 
         function tab:Select()
+            window.ActiveTab = tab
             for _, other in ipairs(window.Tabs) do
                 other.Page.Visible = false
                 other.Accent.Visible = false
@@ -888,86 +953,173 @@ function Library:Window(options)
             page.Visible = true
             tabAccent.Visible = true
             tabAccent.BackgroundColor3 = Library.Theme.Accent
-            tween(tabButton, 0.1, {BackgroundColor3 = Color3.fromRGB(34, 34, 34)})
+            tween(tabButton, 0.1, {BackgroundColor3 = Library.Theme.Surface3})
             tween(tabLabel, 0.1, {TextColor3 = Library.Theme.Text})
-            window.ActiveTab = tab
-            window:ApplySearch(searchBox.Text)
+            if searchBox.Text ~= "" then
+                window:ApplySearch(searchBox.Text)
+            end
         end
 
-        tabButton.MouseEnter:Connect(function() if window.ActiveTab ~= tab then tween(tabButton, 0.1, {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}) end end)
-        tabButton.MouseLeave:Connect(function() if window.ActiveTab ~= tab then tween(tabButton, 0.1, {BackgroundColor3 = Library.Theme.Surface2}) end end)
+        tabButton.MouseEnter:Connect(function()
+            if window.ActiveTab ~= tab then tween(tabButton, 0.1, {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}) end
+        end)
+        tabButton.MouseLeave:Connect(function()
+            if window.ActiveTab ~= tab then tween(tabButton, 0.1, {BackgroundColor3 = Library.Theme.Surface2}) end
+        end)
         tabButton.MouseButton1Click:Connect(function() tab:Select() end)
 
         function tab:Section(info)
             info = info or {}
             local section = {}
             local side = (info.Side == "Right" and right) or left
+            section.Open = true
 
-            local frame = create("Frame", {BackgroundColor3 = Library.Theme.Surface, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 28), ClipsDescendants = true, Parent = side})
+            local frame = create("Frame", {
+                BackgroundColor3 = Library.Theme.Surface,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 28),
+                ClipsDescendants = true,
+                Parent = side,
+            })
             corner(frame, 8)
             stroke(frame, Library.Theme.Stroke, 1)
 
-            local sectionHeader = create("TextButton", {Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, Parent = frame})
-            Library:AddTooltip(sectionHeader, info.Tooltip or ("Open / close " .. (info.Text or "section")))
+            local header = create("TextButton", {
+                Size = UDim2.new(1, 0, 0, 28),
+                BackgroundTransparency = 1,
+                Text = "",
+                AutoButtonColor = false,
+                Parent = frame,
+            })
+            bindCursorDot(header)
+            Library:AddTooltip(header, info.Tooltip or ("Open / close " .. (info.Text or "section")))
 
-            local sectionArrow = create("TextLabel", {BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 0), Size = UDim2.new(0, 12, 1, 0), Font = Enum.Font.GothamBold, Text = "v", TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Library.Theme.SubText, Parent = sectionHeader})
-            local sectionTitle = create("TextLabel", {BackgroundTransparency = 1, Position = UDim2.new(0, 18, 0, 0), Size = UDim2.new(1, -26, 1, 0), Font = Enum.Font.GothamBold, Text = info.Text or "Section", TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Library.Theme.Text, Parent = sectionHeader})
-            local sectionContent = create("Frame", {BackgroundTransparency = 1, Position = UDim2.new(0, 8, 0, 28), Size = UDim2.new(1, -16, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, Parent = frame})
-            list(sectionContent, Enum.SortOrder.LayoutOrder, 5)
-            padding(sectionContent, 0, 0, 0, 8)
+            local arrow = create("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(8, 0),
+                Size = UDim2.new(0, 12, 1, 0),
+                Font = Enum.Font.GothamBold,
+                Text = "v",
+                TextSize = 10,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextColor3 = Library.Theme.SubText,
+                Parent = header,
+            })
 
-            local sectionOpen = true
-            local currentHeight = 28
-            local function refreshSection(animated)
-                sectionContent.Visible = sectionOpen
-                sectionArrow.Text = sectionOpen and "v" or ">"
-                local target = sectionOpen and (28 + sectionContent.AbsoluteSize.Y + 4) or 28
+            local sectionTitle = create("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(18, 0),
+                Size = UDim2.new(1, -26, 1, 0),
+                Font = Enum.Font.GothamBold,
+                Text = info.Text or "Section",
+                TextSize = 10,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextColor3 = Library.Theme.Text,
+                Parent = header,
+            })
+
+            local contentFrame = create("Frame", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(8, 28),
+                Size = UDim2.new(1, -16, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                Parent = frame,
+            })
+            list(contentFrame, 5)
+            padding(contentFrame, 0, 0, 0, 8)
+
+            function section:Refresh(animated)
+                local height = section.Open and (28 + contentFrame.AbsoluteSize.Y + 4) or 28
+                arrow.Text = section.Open and "v" or ">"
+                contentFrame.Visible = section.Open
                 if animated then
-                    tween(frame, 0.15, {Size = UDim2.new(1, 0, 0, target)})
+                    tween(frame, 0.15, {Size = UDim2.new(1, 0, 0, height)})
                 else
-                    frame.Size = UDim2.new(1, 0, 0, target)
+                    frame.Size = UDim2.new(1, 0, 0, height)
                 end
-                currentHeight = target
             end
 
-            sectionHeader.MouseButton1Click:Connect(function()
-                sectionOpen = not sectionOpen
-                refreshSection(true)
+            function section:SetOpen(state, animated)
+                section.Open = state
+                section:Refresh(animated)
+            end
+
+            header.MouseButton1Click:Connect(function()
+                section:SetOpen(not section.Open, true)
             end)
 
             if info.Description then
-                create("TextLabel", {BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 10), Font = Enum.Font.Gotham, Text = info.Description, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Library.Theme.SubText, Parent = sectionContent})
+                create("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 10),
+                    Font = Enum.Font.Gotham,
+                    Text = info.Description,
+                    TextSize = 8,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextColor3 = Library.Theme.SubText,
+                    Parent = contentFrame,
+                })
             end
 
-            sectionContent:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-                if sectionOpen then refreshSection(false) end
+            contentFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+                if section.Open then section:Refresh(false) end
             end)
 
-            table.insert(window.SearchItems, {Text = info.Text or "Section", Object = frame})
+            window:AddSearchItem({
+                Text = safeText(tab.Title, info.Text, info.Description),
+                Object = frame,
+                Section = section,
+            })
 
             local function baseRow(height)
-                return create("Frame", {BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, height or 22), Parent = sectionContent})
+                local row = create("Frame", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, height or 22),
+                    Parent = contentFrame,
+                })
+                return row
             end
 
             function section:Label(data)
                 data = data or {}
                 local row = baseRow(18)
-                create("TextLabel", {BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Font = Enum.Font.Gotham, Text = data.Text or "Label", TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = data.Color or Library.Theme.SubText, Parent = row})
-                table.insert(window.SearchItems, {Text = data.Text or "Label", Object = row})
-                refreshSection(false)
+                create("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.fromScale(1, 1),
+                    Font = Enum.Font.Gotham,
+                    Text = data.Text or "Label",
+                    TextSize = 9,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextColor3 = data.Color or Library.Theme.SubText,
+                    Parent = row,
+                })
+                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text), Object = row, Section = section})
+                section:Refresh(false)
             end
 
             function section:Button(data)
                 data = data or {}
-                local button = create("TextButton", {Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = Library.Theme.Surface2, Text = data.Text or "Button", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = Library.Theme.Text, AutoButtonColor = false, Parent = sectionContent})
+                local button = create("TextButton", {
+                    Size = UDim2.new(1, 0, 0, 22),
+                    BackgroundColor3 = Library.Theme.Surface2,
+                    Text = data.Text or "Button",
+                    Font = Enum.Font.GothamBold,
+                    TextSize = 9,
+                    TextColor3 = Library.Theme.Text,
+                    AutoButtonColor = false,
+                    Parent = contentFrame,
+                })
                 corner(button, 5)
                 stroke(button, Library.Theme.Stroke, 1)
+                bindCursorDot(button)
                 Library:AddTooltip(button, data.Tooltip)
                 button.MouseEnter:Connect(function() tween(button, 0.1, {BackgroundColor3 = Library.Theme.Accent}) end)
                 button.MouseLeave:Connect(function() tween(button, 0.1, {BackgroundColor3 = Library.Theme.Surface2}) end)
-                button.MouseButton1Click:Connect(function() if data.Callback then task.spawn(data.Callback) end end)
-                table.insert(window.SearchItems, {Text = data.Text or "Button", Object = button})
-                refreshSection(false)
+                button.MouseButton1Click:Connect(function()
+                    if data.Callback then task.spawn(data.Callback) end
+                end)
+                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip), Object = button, Section = section})
+                section:Refresh(false)
                 return button
             end
 
@@ -975,41 +1127,86 @@ function Library:Window(options)
                 data = data or {}
                 local flag = data.Flag
                 local state = data.Default == true
-                if flag and Library.Flags[flag] == nil then Library.Flags[flag] = state else if flag then state = Library.Flags[flag] end end
+                if flag and Library.Flags[flag] ~= nil then
+                    state = Library.Flags[flag] == true
+                elseif flag then
+                    Library.Flags[flag] = state
+                end
 
                 local row = baseRow(22)
-                create("TextLabel", {BackgroundTransparency = 1, Size = UDim2.new(1, -34, 1, 0), Font = Enum.Font.GothamBold, Text = data.Text or "Toggle", TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Library.Theme.Text, Parent = row})
-                local toggleBack = create("Frame", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(28, 14), BackgroundColor3 = state and Library.Theme.Accent or Color3.fromRGB(40, 40, 40), Parent = row})
-                corner(toggleBack, 999)
-                local knob = create("Frame", {Position = state and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5), Size = UDim2.fromOffset(10, 10), BackgroundColor3 = Color3.fromRGB(230, 230, 230), Parent = toggleBack})
+                create("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, -34, 1, 0),
+                    Font = Enum.Font.GothamBold,
+                    Text = data.Text or "Toggle",
+                    TextSize = 9,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextColor3 = Library.Theme.Text,
+                    Parent = row,
+                })
+
+                local back = create("Frame", {
+                    AnchorPoint = Vector2.new(1, 0.5),
+                    Position = UDim2.new(1, 0, 0.5, 0),
+                    Size = UDim2.fromOffset(28, 14),
+                    BackgroundColor3 = state and Library.Theme.Accent or Color3.fromRGB(40, 40, 40),
+                    Parent = row,
+                })
+                corner(back, 999)
+
+                local knob = create("Frame", {
+                    Position = state and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5),
+                    Size = UDim2.fromOffset(10, 10),
+                    BackgroundColor3 = Color3.fromRGB(230, 230, 230),
+                    Parent = back,
+                })
                 corner(knob, 999)
 
                 local control = {}
                 function control:Set(value, silent)
                     state = value == true
                     if flag then Library.Flags[flag] = state end
-                    toggleBack.BackgroundColor3 = state and Library.Theme.Accent or Color3.fromRGB(40, 40, 40)
+                    back.BackgroundColor3 = state and Library.Theme.Accent or Color3.fromRGB(40, 40, 40)
                     knob.Position = state and UDim2.new(1, -12, 0.5, -5) or UDim2.new(0, 2, 0.5, -5)
                     if not silent and data.Callback then task.spawn(function() data.Callback(state) end) end
                 end
+
                 Library:RegisterFlag(flag, control)
+                bindCursorDot(row)
                 Library:AddTooltip(row, data.Tooltip)
-                local button = create("TextButton", {BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Text = "", Parent = row})
-                button.MouseButton1Click:Connect(function() control:Set(not state, false) end)
-                table.insert(window.SearchItems, {Text = data.Text or "Toggle", Object = row})
-                refreshSection(false)
+                local click = create("TextButton", {BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", Parent = row})
+                bindCursorDot(click)
+                click.MouseButton1Click:Connect(function() control:Set(not state, false) end)
+                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section})
+                section:Refresh(false)
                 return control
             end
 
             function section:Input(data)
                 data = data or {}
                 local flag = data.Flag
-                local starting = Library.Flags[flag] ~= nil and tostring(Library.Flags[flag]) or (data.Default or "")
-                local box = create("TextBox", {Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = Library.Theme.Surface2, ClearTextOnFocus = false, PlaceholderText = data.Placeholder or "Type here...", Text = starting, Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = Library.Theme.Text, PlaceholderColor3 = Library.Theme.SubText, Parent = sectionContent})
+                local start = data.Default or ""
+                if flag and Library.Flags[flag] ~= nil then start = tostring(Library.Flags[flag]) end
+                if flag then Library.Flags[flag] = start end
+
+                local box = create("TextBox", {
+                    Size = UDim2.new(1, 0, 0, 22),
+                    BackgroundColor3 = Library.Theme.Surface2,
+                    ClearTextOnFocus = false,
+                    PlaceholderText = data.Placeholder or "Type here...",
+                    Text = start,
+                    Font = Enum.Font.Gotham,
+                    TextSize = 9,
+                    TextColor3 = Library.Theme.Text,
+                    PlaceholderColor3 = Library.Theme.SubText,
+                    Parent = contentFrame,
+                })
                 corner(box, 5)
                 stroke(box, Library.Theme.Stroke, 1)
                 padding(box, 8, 8, 0, 0)
-                if flag then Library.Flags[flag] = box.Text end
+                bindCursorDot(box)
+                Library:AddTooltip(box, data.Tooltip)
+
                 local control = {}
                 function control:Set(value, silent)
                     box.Text = tostring(value or "")
@@ -1017,77 +1214,155 @@ function Library:Window(options)
                     if not silent and data.Callback then task.spawn(function() data.Callback(box.Text) end) end
                 end
                 Library:RegisterFlag(flag, control)
-                Library:AddTooltip(box, data.Tooltip)
+
                 box.FocusLost:Connect(function()
                     if flag then Library.Flags[flag] = box.Text end
                     if data.Callback then task.spawn(function() data.Callback(box.Text) end) end
                 end)
-                table.insert(window.SearchItems, {Text = data.Placeholder or data.Text or "Input", Object = box})
-                refreshSection(false)
+
+                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Placeholder, data.Tooltip, flag), Object = box, Section = section})
+                section:Refresh(false)
                 return control
             end
 
             function section:Slider(data)
                 data = data or {}
-                local minimum = data.Minimum or 0
-                local maximum = data.Maximum or 100
-                local starting = Library.Flags[data.Flag] ~= nil and tonumber(Library.Flags[data.Flag]) or (data.Default or minimum)
-                local value = math.clamp(starting, minimum, maximum)
                 local flag = data.Flag
+                local min = data.Minimum or 0
+                local max = data.Maximum or 100
+                local value = data.Default or min
+                if flag and Library.Flags[flag] ~= nil then value = tonumber(Library.Flags[flag]) or value end
+                value = math.clamp(value, min, max)
                 if flag then Library.Flags[flag] = value end
 
-                local holder = create("Frame", {Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, Parent = sectionContent})
-                create("TextLabel", {BackgroundTransparency = 1, Size = UDim2.new(0.7, 0, 0, 10), Font = Enum.Font.GothamBold, Text = data.Text or "Slider", TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Library.Theme.Text, Parent = holder})
-                local valueLabel = create("TextLabel", {BackgroundTransparency = 1, Position = UDim2.new(0.7, 0, 0, 0), Size = UDim2.new(0.3, 0, 0, 10), Font = Enum.Font.Gotham, Text = tostring(value) .. (data.Postfix or ""), TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Library.Theme.SubText, Parent = holder})
-                local bar = create("Frame", {Position = UDim2.new(0, 0, 0, 16), Size = UDim2.new(1, 0, 0, 5), BackgroundColor3 = Color3.fromRGB(40, 40, 40), BorderSizePixel = 0, Parent = holder})
+                local holder = create("Frame", {Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, Parent = contentFrame})
+                bindCursorDot(holder)
+                Library:AddTooltip(holder, data.Tooltip)
+
+                create("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(0.7, 0, 0, 10),
+                    Font = Enum.Font.GothamBold,
+                    Text = data.Text or "Slider",
+                    TextSize = 9,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextColor3 = Library.Theme.Text,
+                    Parent = holder,
+                })
+
+                local valueLabel = create("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0.7, 0, 0, 0),
+                    Size = UDim2.new(0.3, 0, 0, 10),
+                    Font = Enum.Font.Gotham,
+                    Text = tostring(value) .. (data.Postfix or ""),
+                    TextSize = 8,
+                    TextXAlignment = Enum.TextXAlignment.Right,
+                    TextColor3 = Library.Theme.SubText,
+                    Parent = holder,
+                })
+
+                local bar = create("Frame", {
+                    Position = UDim2.fromOffset(0, 16),
+                    Size = UDim2.new(1, 0, 0, 5),
+                    BackgroundColor3 = Color3.fromRGB(40, 40, 40),
+                    BorderSizePixel = 0,
+                    Parent = holder,
+                })
                 corner(bar, 999)
-                local fill = create("Frame", {Size = UDim2.new((value - minimum) / (maximum - minimum), 0, 1, 0), BackgroundColor3 = Library.Theme.Accent, BorderSizePixel = 0, Parent = bar})
+
+                local fill = create("Frame", {
+                    Size = UDim2.new((value - min) / (max - min), 0, 1, 0),
+                    BackgroundColor3 = Library.Theme.Accent,
+                    BorderSizePixel = 0,
+                    Parent = bar,
+                })
                 corner(fill, 999)
-                local dragging = false
+
                 local control = {}
                 function control:Set(newValue, silent)
-                    value = math.clamp(tonumber(newValue) or minimum, minimum, maximum)
-                    local percent = (value - minimum) / (maximum - minimum)
+                    value = math.clamp(tonumber(newValue) or min, min, max)
+                    local percent = (value - min) / (max - min)
                     fill.Size = UDim2.new(percent, 0, 1, 0)
                     valueLabel.Text = tostring(value) .. (data.Postfix or "")
                     if flag then Library.Flags[flag] = value end
                     if not silent and data.Callback then task.spawn(function() data.Callback(value) end) end
                 end
                 Library:RegisterFlag(flag, control)
-                Library:AddTooltip(holder, data.Tooltip)
-                local function setFromX(x)
-                    local percent = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-                    control:Set(math.floor(minimum + ((maximum - minimum) * percent)), false)
+
+                local dragging = false
+                local function setFromMouse()
+                    local pct = math.clamp((Mouse.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+                    control:Set(math.floor(min + ((max - min) * pct)), false)
                 end
-                local button = create("TextButton", {BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Text = "", Parent = holder})
-                button.MouseButton1Down:Connect(function() dragging = true setFromX(Mouse.X) end)
-                UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
-                UserInputService.InputChanged:Connect(function(input) if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then setFromX(Mouse.X) end end)
-                table.insert(window.SearchItems, {Text = data.Text or "Slider", Object = holder})
-                refreshSection(false)
+
+                local click = create("TextButton", {BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", Parent = holder})
+                bindCursorDot(click)
+                click.MouseButton1Down:Connect(function() dragging = true setFromMouse() end)
+                UserInputService.InputEnded:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+                end)
+                UserInputService.InputChanged:Connect(function(input)
+                    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then setFromMouse() end
+                end)
+
+                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = holder, Section = section})
+                section:Refresh(false)
                 return control
             end
 
             function section:Keybind(data)
                 data = data or {}
                 local flag = data.Flag
-                local current = Library.Flags[flag] and Enum.KeyCode[Library.Flags[flag]] or data.Default or Enum.KeyCode.F
-                local listening = false
+                local current = data.Default or Enum.KeyCode.F
+                if flag and Library.Flags[flag] and Enum.KeyCode[Library.Flags[flag]] then
+                    current = Enum.KeyCode[Library.Flags[flag]]
+                end
                 if flag then Library.Flags[flag] = current.Name end
+                local listening = false
+
                 local row = baseRow(22)
-                create("TextLabel", {BackgroundTransparency = 1, Size = UDim2.new(0.62, 0, 1, 0), Font = Enum.Font.GothamBold, Text = data.Text or "Keybind", TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Library.Theme.Text, Parent = row})
-                local button = create("TextButton", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(68, 20), BackgroundColor3 = Library.Theme.Surface2, Text = current.Name, Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = Library.Theme.Text, AutoButtonColor = false, Parent = row})
+                create("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(0.62, 0, 1, 0),
+                    Font = Enum.Font.GothamBold,
+                    Text = data.Text or "Keybind",
+                    TextSize = 9,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextColor3 = Library.Theme.Text,
+                    Parent = row,
+                })
+
+                local button = create("TextButton", {
+                    AnchorPoint = Vector2.new(1, 0.5),
+                    Position = UDim2.new(1, 0, 0.5, 0),
+                    Size = UDim2.fromOffset(68, 20),
+                    BackgroundColor3 = Library.Theme.Surface2,
+                    Text = current.Name,
+                    Font = Enum.Font.GothamBold,
+                    TextSize = 8,
+                    TextColor3 = Library.Theme.Text,
+                    AutoButtonColor = false,
+                    Parent = row,
+                })
                 corner(button, 5)
                 stroke(button, Library.Theme.Stroke, 1)
+                bindCursorDot(row)
+                bindCursorDot(button)
+                Library:AddTooltip(row, data.Tooltip)
+
                 local control = {}
                 function control:Set(value, silent)
-                    if typeof(value) == "EnumItem" then current = value elseif Enum.KeyCode[tostring(value)] then current = Enum.KeyCode[tostring(value)] end
+                    if typeof(value) == "EnumItem" then
+                        current = value
+                    elseif Enum.KeyCode[tostring(value)] then
+                        current = Enum.KeyCode[tostring(value)]
+                    end
                     button.Text = current.Name
                     if flag then Library.Flags[flag] = current.Name end
-                    if not silent and data.Callback then end
                 end
                 Library:RegisterFlag(flag, control)
-                Library:AddTooltip(row, data.Tooltip)
+
                 button.MouseButton1Click:Connect(function()
                     if listening then return end
                     listening = true
@@ -1102,16 +1377,18 @@ function Library:Window(options)
                         end
                     end)
                 end)
+
                 UserInputService.InputBegan:Connect(function(input, gp)
                     if gp or listening then return end
                     if input.KeyCode == current and data.Callback then task.spawn(data.Callback) end
                 end)
-                table.insert(window.SearchItems, {Text = data.Text or "Keybind", Object = row})
-                refreshSection(false)
+
+                window:AddSearchItem({Text = safeText(tab.Title, info.Text, data.Text, data.Tooltip, flag), Object = row, Section = section})
+                section:Refresh(false)
                 return control
             end
 
-            refreshSection(false)
+            section:Refresh(false)
             return section
         end
 
@@ -1137,28 +1414,5 @@ function Library:Window(options)
     window:ApplyTheme()
     return window
 end
-
--- Example usage
-local Window = Library:Window({Title = "Shaman"})
-
-local MainTab = Window:Tab({Text = "Main"})
-local VisualTab = Window:Tab({Text = "Visuals"})
-
-local Combat = MainTab:Section({Text = "Combat", Side = "Left", Description = "Core combat options", Tooltip = "Main combat section"})
-Combat:Toggle({Text = "Enable Aura", Flag = "aura", Default = false, Tooltip = "Master aura toggle", Callback = function(v) print("Aura:", v) end})
-Combat:Slider({Text = "Range", Flag = "range", Minimum = 1, Maximum = 30, Default = 12, Postfix = "m", Tooltip = "Aura distance", Callback = function(v) print("Range:", v) end})
-Combat:Keybind({Text = "Panic Key", Flag = "panic_bind", Default = Enum.KeyCode.P, Tooltip = "Emergency hide bind", Callback = function() Window:SetOpen(false) end})
-Combat:Button({Text = "Save Current Config", Tooltip = "Write current options to disk", Callback = function() Library:SaveConfig() end})
-
-local Misc = MainTab:Section({Text = "Misc", Side = "Right", Description = "Compact utility controls"})
-Misc:Input({Placeholder = "Type here...", Flag = "input_demo", Tooltip = "Saved text option", Callback = function(v) print("Input:", v) end})
-Misc:Label({Text = "Saved options now restore the actual UI controls too."})
-
-local Theme = VisualTab:Section({Text = "Theme", Side = "Left", Description = "Monochrome styling"})
-Theme:Button({Text = "Load Config", Tooltip = "Load config from file", Callback = function() Library:LoadConfig() end})
-Theme:Button({Text = "Open Settings", Tooltip = "Open settings panel", Callback = function()
-    local panel = Window.Main:FindFirstChild("SettingsPanel")
-    if panel then panel.Visible = not panel.Visible end
-end})
 
 return Library
