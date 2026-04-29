@@ -180,11 +180,11 @@ function Library:RegisterFlag(flag, control)
     end
 end
 
-function Library:ApplyAllFlags()
+function Library:ApplyAllFlags(runCallbacks)
     for flag, value in pairs(self.Flags) do
         local control = self.Registry[flag]
         if control and control.Set then
-            control:Set(value, true)
+            control:Set(value, not runCallbacks)
         end
     end
 end
@@ -305,7 +305,7 @@ function Library:LoadConfig(name)
         window:SetOpen(self.IsOpen)
     end
 
-    self:ApplyAllFlags()
+    self:ApplyAllFlags(true)
     return true
 end
 
