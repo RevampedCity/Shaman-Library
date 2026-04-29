@@ -428,6 +428,40 @@ function Library:Window(options)
         Parent = topbar,
     })
 
+    local cursorDot = create("Frame", {
+        Name = "CursorDot",
+        Visible = false,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Size = UDim2.fromOffset(4, 4),
+        BackgroundColor3 = Color3.fromRGB(210, 210, 210),
+        BorderSizePixel = 0,
+        ZIndex = 80,
+        Parent = main,
+    })
+    corner(cursorDot, 999)
+
+    local dotHoverCount = 0
+    local function bindCursorDot(obj)
+        if not obj or not obj:IsA("GuiObject") then return end
+        obj.MouseEnter:Connect(function()
+            dotHoverCount = dotHoverCount + 1
+            cursorDot.Visible = true
+        end)
+        obj.MouseLeave:Connect(function()
+            dotHoverCount = math.max(0, dotHoverCount - 1)
+            if dotHoverCount == 0 then
+                cursorDot.Visible = false
+            end
+        end)
+    end
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and cursorDot.Visible then
+            local pos = UserInputService:GetMouseLocation()
+            cursorDot.Position = UDim2.fromOffset(pos.X - main.AbsolutePosition.X, pos.Y - main.AbsolutePosition.Y)
+        end
+    end)
+
     local actionHolder = create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -10, 0.5, 0),
@@ -465,6 +499,9 @@ function Library:Window(options)
     local settingsButton = makeAction("S", Library.Theme.Accent, "Settings")
     local minimizeButton = makeAction("-", Library.Theme.Accent, "Minimize")
     local closeButton = makeAction("X", Library.Theme.Accent, "Close")
+    bindCursorDot(settingsButton)
+    bindCursorDot(minimizeButton)
+    bindCursorDot(closeButton)
 
     local body = create("Frame", {
         Name = "Body",
@@ -497,6 +534,7 @@ function Library:Window(options)
     corner(searchBox, 5)
     stroke(searchBox, Library.Theme.Stroke, 1)
     padding(searchBox, 8, 8, 0, 0)
+    bindCursorDot(searchBox)
 
     local tabsHolder = create("ScrollingFrame", {
         Name = "Tabs",
@@ -697,16 +735,39 @@ function Library:Window(options)
         end
     end
 
+    function window:ClampToScreen()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local viewport = camera.ViewportSize
+        local abs = main.AbsoluteSize
+        local pos = main.AbsolutePosition
+        local x = math.clamp(pos.X + abs.X / 2, abs.X / 2 + 6, viewport.X - abs.X / 2 - 6)
+        local y = math.clamp(pos.Y + abs.Y / 2, abs.Y / 2 + 6, viewport.Y - abs.Y / 2 - 6)
+        main.Position = UDim2.fromOffset(x, y)
+    end
+
     function window:SetMinimized(state)
         window.Minimized = state
         if state then
-            body.Visible = false
+            window.StoredSize = main.Size
             resizeGrip.Visible = false
+            body.Visible = true
+            tween(body, 0.14, {Position = UDim2.new(0, 0, 0, -8)})
+            task.delay(0.12, function()
+                if window.Minimized then
+                    body.Visible = false
+                end
+            end)
             tween(main, 0.18, {Size = UDim2.new(main.Size.X.Scale, main.Size.X.Offset, 0, 34)})
         else
             body.Visible = true
+            body.Position = UDim2.new(0, 0, 0, -8)
             resizeGrip.Visible = true
             tween(main, 0.18, {Size = window.StoredSize})
+            tween(body, 0.16, {Position = UDim2.new(0, 0, 0, 34)})
+            task.delay(0.2, function()
+                window:ClampToScreen()
+            end)
         end
     end
 
